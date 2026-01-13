@@ -1,0 +1,816 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Neon Scavenger</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background: #050505;
+            color: #fff;
+            font-family: 'Courier New', Courier, monospace;
+            user-select: none;
+        }
+        canvas {
+            display: block;
+        }
+        #ui {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            pointer-events: none;
+            text-shadow: 0 0 5px #fff;
+        }
+        #message {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 48px;
+            text-shadow: 0 0 10px #0f0;
+            color: #0f0;
+            display: none;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+
+<div id="ui">
+    <div id="weapon-display">WEAPON: DATA-BLADE</div>
+    <div id="ammo-display">AMMO: ∞</div>
+    <div id="level-display">LEVEL: 1</div>
+</div>
+<div id="message">SYSTEM HACKED</div>
+<canvas id="gameCanvas"></canvas>
+
+<script>
+/**
+ * SETUP & CONSTANTS
+ */
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const uiWeapon = document.getElementById('weapon-display');
+const uiAmmo = document.getElementById('ammo-display');
+const uiLevel = document.getElementById('level-display');
+const msgEl = document.getElementById('message');
+
+let width, height;
+
+function resize() {
+    width = canvas.width = window.innerWidth;
+    height = canvas.height = window.innerHeight;
+}
+window.addEventListener('resize', resize);
+resize();
+
+// Input State
+const keys = {};
+const mouse = { x: 0, y: 0 };
+
+// Game State
+let level = 1;
+let gameState = 'playing'; // playing, transition
+let frameCount = 0;
+
+// Entities
+let player;
+let enemies = [];
+let bullets = [];
+let particles = [];
+let walls = [];
+let pickups = [];
+let camShake = 0;
+
+/**
+ * UTILITIES
+ */
+function rand(min, max) { return Math.random() * (max - min) + min; }
+
+function checkRectCollide(r1, r2) {
+    return (r1.x < r2.x + r2.w && r1.x + r1.w > r2.x &&
+            r1.y < r2.y + r2.h && r1.y + r1.h > r2.y);
+}
+
+function getAngle(x1, y1, x2, y2) { return Math.atan2(y2 - y1, x2 - x1); }
+
+// Line intersection for Raycasting (Sight checks)
+function lineIntersectRect(x1, y1, x2, y2, rx, ry, rw, rh) {
+    // Check if line intersects any of the 4 rectangle sides
+    const left   = lineLine(x1,y1,x2,y2, rx,ry,rx,ry+rh);
+    const right  = lineLine(x1,y1,x2,y2, rx+rw,ry,rx+rw,ry+rh);
+    const top    = lineLine(x1,y1,x2,y2, rx,ry,rx+rw,ry);
+    const bottom = lineLine(x1,y1,x2,y2, rx,ry+rh,rx+rw,ry+rh);
+    return left || right || top || bottom;
+}
+
+function lineLine(x1, y1, x2, y2, x3, y3, x4, y4) {
+    const uA = ((x4-x3)*(y1-y3) - (y4-y3)*(x1-x3)) / ((y4-y3)*(x2-x1) - (x4-x3)*(y2-y1));
+    const uB = ((x2-x1)*(y1-y3) - (y2-y1)*(x1-x3)) / ((y4-y3)*(x2-x1) - (x4-x3)*(y2-y1));
+    return (uA >= 0 && uA <= 1 && uB >= 0 && uB <= 1);
+}
+
+// Raycast to check visibility
+function hasLineOfSight(ent1, ent2) {
+    for (let w of walls) {
+        if (lineIntersectRect(ent1.x, ent1.y, ent2.x, ent2.y, w.x, w.y, w.w, w.h)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+/**
+ * CLASSES
+ */
+
+class Particle {
+    constructor(x, y, color, speed) {
+        this.x = x;
+        this.y = y;
+        this.color = color;
+        this.size = rand(2, 5);
+        const angle = rand(0, Math.PI * 2);
+        const vel = rand(1, speed);
+        this.vx = Math.cos(angle) * vel;
+        this.vy = Math.sin(angle) * vel;
+        this.life = 1.0;
+        this.decay = rand(0.02, 0.05);
+    }
+    update() {
+        this.x += this.vx;
+        this.y += this.vy;
+        this.life -= this.decay;
+    }
+    draw() {
+        ctx.globalAlpha = this.life;
+        ctx.fillStyle = this.color;
+        ctx.fillRect(this.x, this.y, this.size, this.size);
+        ctx.globalAlpha = 1;
+    }
+}
+
+class Weapon {
+    constructor(type) {
+        this.type = type;
+        this.cooldown = 0;
+        this.maxCooldown = 0;
+        
+        if (type === 'Pistol') {
+            this.color = '#FFFF00'; // Yellow
+            this.ammo = 6;
+            this.maxCooldown = 15;
+        } else if (type === 'Shotgun') {
+            this.color = '#00FFFF'; // Cyan
+            this.ammo = 2;
+            this.maxCooldown = 40;
+        } else if (type === 'Data-Blade') {
+            this.color = '#FFFFFF';
+            this.ammo = Infinity;
+            this.maxCooldown = 20;
+        }
+    }
+}
+
+class Bullet {
+    constructor(x, y, angle, speed, color, ownerType, isMelee = false, isRailgun = false, isThrown = false) {
+        this.x = x;
+        this.y = y;
+        this.vx = Math.cos(angle) * speed;
+        this.vy = Math.sin(angle) * speed;
+        this.color = color;
+        this.ownerType = ownerType; // 'player' or 'enemy'
+        this.radius = isMelee ? 30 : 3;
+        this.isMelee = isMelee;
+        this.isRailgun = isRailgun; // Pierces walls
+        this.isThrown = isThrown; // Thrown weapon logic
+        this.life = isMelee ? 5 : 100; // Melee is short lived
+        this.dead = false;
+        
+        // For Thrown weapons, we draw them bigger
+        if(this.isThrown) this.radius = 8;
+    }
+
+    update() {
+        this.x += this.vx;
+        this.y += this.vy;
+        this.life--;
+        if (this.life <= 0) this.dead = true;
+
+        // Wall Collision
+        if (!this.isRailgun) {
+            for (let w of walls) {
+                // Simple point check for bullets
+                if (this.x > w.x && this.x < w.x + w.w && 
+                    this.y > w.y && this.y < w.y + w.h) {
+                    this.dead = true;
+                    spawnParticles(this.x, this.y, this.color, 2);
+                    return;
+                }
+            }
+        }
+    }
+
+    draw() {
+        ctx.save();
+        ctx.translate(this.x, this.y);
+        
+        if (this.isMelee) {
+            // Draw Swipe
+            ctx.strokeStyle = this.color;
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.arc(0, 0, this.radius, 0, Math.PI * 2);
+            ctx.stroke();
+        } else if (this.isThrown) {
+            // Draw Spinning Gun
+            ctx.rotate(frameCount * 0.5);
+            ctx.fillStyle = this.color;
+            ctx.fillRect(-6, -6, 12, 12);
+        } else {
+            // Standard Bullet
+            ctx.fillStyle = this.color;
+            ctx.shadowBlur = 5;
+            ctx.shadowColor = this.color;
+            ctx.beginPath();
+            ctx.arc(0, 0, this.radius, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        ctx.restore();
+    }
+}
+
+class Entity {
+    constructor(x, y, size, color) {
+        this.x = x;
+        this.y = y;
+        this.w = size;
+        this.h = size;
+        this.color = color;
+        this.vx = 0;
+        this.vy = 0;
+        this.angle = 0;
+        this.dead = false;
+    }
+
+    move(speed) {
+        let nextX = this.x + Math.cos(this.angle) * speed;
+        let nextY = this.y + Math.sin(this.angle) * speed;
+        
+        // Wall Collision (Slide)
+        let hitX = false;
+        for (let w of walls) {
+            if (checkRectCollide({x: nextX - this.w/2, y: this.y - this.h/2, w: this.w, h: this.h}, w)) hitX = true;
+        }
+        if (!hitX) this.x = nextX;
+
+        let hitY = false;
+        for (let w of walls) {
+            if (checkRectCollide({x: this.x - this.w/2, y: nextY - this.h/2, w: this.w, h: this.h}, w)) hitY = true;
+        }
+        if (!hitY) this.y = nextY;
+    }
+}
+
+class Player extends Entity {
+    constructor(x, y) {
+        super(x, y, 20, '#FFFFFF');
+        this.weapon = new Weapon('Data-Blade');
+    }
+
+    update() {
+        // Look at mouse
+        this.angle = getAngle(this.x, this.y, mouse.x, mouse.y);
+
+        // Movement
+        let dx = 0, dy = 0;
+        if (keys['KeyW']) dy = -1;
+        if (keys['KeyS']) dy = 1;
+        if (keys['KeyA']) dx = -1;
+        if (keys['KeyD']) dx = 1;
+
+        if (dx !== 0 || dy !== 0) {
+            // Normalize vector
+            const len = Math.sqrt(dx*dx + dy*dy);
+            dx /= len; dy /= len;
+            const speed = 4;
+            
+            // Re-use move logic logic manually to handle strafing (Entity.move is forward-based)
+            let nextX = this.x + dx * speed;
+            let collideX = false;
+            for(let w of walls) if(checkRectCollide({x: nextX-10, y: this.y-10, w: 20, h: 20}, w)) collideX = true;
+            if(!collideX) this.x = nextX;
+
+            let nextY = this.y + dy * speed;
+            let collideY = false;
+            for(let w of walls) if(checkRectCollide({x: this.x-10, y: nextY-10, w: 20, h: 20}, w)) collideY = true;
+            if(!collideY) this.y = nextY;
+        }
+
+        // Weapon Cooldown
+        if (this.weapon.cooldown > 0) this.weapon.cooldown--;
+
+        // Pickup collision
+        for (let i = pickups.length - 1; i >= 0; i--) {
+            let p = pickups[i];
+            let dist = Math.hypot(this.x - p.x, this.y - p.y);
+            if (dist < 20) {
+                this.weapon = new Weapon(p.type);
+                pickups.splice(i, 1);
+            }
+        }
+    }
+
+    draw() {
+        ctx.save();
+        ctx.translate(this.x, this.y);
+        ctx.rotate(this.angle);
+        ctx.shadowBlur = 10;
+        ctx.shadowColor = '#FFFFFF';
+        ctx.fillStyle = this.color;
+        ctx.fillRect(-10, -10, 20, 20);
+        
+        // Gun visual
+        ctx.fillStyle = this.weapon.color;
+        ctx.fillRect(5, -4, 12, 8);
+        ctx.restore();
+    }
+
+    shoot() {
+        if (this.weapon.cooldown > 0) return;
+
+        if (this.weapon.type === 'Data-Blade') {
+            // Melee Swipe
+            bullets.push(new Bullet(this.x, this.y, this.angle, 0, '#FFF', 'player', true));
+            this.weapon.cooldown = this.weapon.maxCooldown;
+            camShake = 2;
+        } else if (this.weapon.ammo > 0) {
+            // Shoot
+            if (this.weapon.type === 'Pistol') {
+                bullets.push(new Bullet(this.x, this.y, this.angle, 12, this.weapon.color, 'player'));
+                camShake = 2;
+            } else if (this.weapon.type === 'Shotgun') {
+                for(let i=-2; i<=2; i++) {
+                    bullets.push(new Bullet(this.x, this.y, this.angle + (i*0.1), 12, this.weapon.color, 'player'));
+                }
+                camShake = 5;
+            }
+            this.weapon.ammo--;
+            this.weapon.cooldown = this.weapon.maxCooldown;
+
+            if (this.weapon.ammo <= 0) {
+                // Auto revert if empty? Optionally yes, but prompt implies explicit swap logic.
+                // Keeping empty gun until swap or throw per typical tactical feel.
+            }
+        }
+    }
+
+    throwWeapon() {
+        if (this.weapon.type === 'Data-Blade') return; // Cannot throw melee
+
+        // Throw current weapon as a projectile
+        bullets.push(new Bullet(this.x, this.y, this.angle, 15, this.weapon.color, 'player', false, false, true));
+        
+        // Revert to blade
+        this.weapon = new Weapon('Data-Blade');
+    }
+}
+
+class Enemy extends Entity {
+    constructor(x, y, type) {
+        super(x, y, 20, '#F00');
+        this.type = type; // 'Rusher', 'Shield', 'Sniper'
+        
+        // Snipe State
+        this.sniperState = 0; // 0: Idle, 1: Aiming, 2: Cooldown
+        this.sniperTimer = 0;
+        this.aimLine = {x:0, y:0};
+    }
+
+    update() {
+        if (this.dead) return;
+        
+        const distToPlayer = Math.hypot(player.x - this.x, player.y - this.y);
+        const angleToPlayer = getAngle(this.x, this.y, player.x, player.y);
+        const canSeePlayer = hasLineOfSight(this, player);
+
+        if (this.type === 'Rusher') {
+            this.angle = angleToPlayer;
+            this.move(2.5); // Fast
+            
+            // Melee Collision
+            if (distToPlayer < 25) {
+                playerDie();
+            }
+        } 
+        else if (this.type === 'Shield') {
+            // Turns slowly
+            let diff = angleToPlayer - this.angle;
+            while (diff < -Math.PI) diff += Math.PI * 2;
+            while (diff > Math.PI) diff -= Math.PI * 2;
+            this.angle += diff * 0.05; // Slow turn
+
+            if (distToPlayer > 100) {
+                this.move(1.0); // Slow
+            }
+        } 
+        else if (this.type === 'Sniper') {
+            if (this.sniperState === 0) {
+                // Idle / Reposition
+                if (canSeePlayer) {
+                    this.sniperState = 1;
+                    this.sniperTimer = 90; // 1.5 seconds at 60fps
+                } else {
+                    // Wander slowly if cant see
+                    this.angle += rand(-0.1, 0.1);
+                    this.move(0.5);
+                }
+            } else if (this.sniperState === 1) {
+                // Aiming (Laser)
+                this.angle = angleToPlayer; // Lock on
+                this.sniperTimer--;
+                if (!canSeePlayer) {
+                    this.sniperState = 0; // Lost sight
+                }
+                if (this.sniperTimer <= 0) {
+                    // FIRE RAILGUN
+                    bullets.push(new Bullet(this.x, this.y, this.angle, 30, '#F0F', 'enemy', false, true));
+                    this.sniperState = 2;
+                    this.sniperTimer = 120; // 2 sec cooldown
+                }
+            } else if (this.sniperState === 2) {
+                // Cooldown
+                this.sniperTimer--;
+                if (this.sniperTimer <= 0) this.sniperState = 0;
+            }
+        }
+    }
+
+    draw() {
+        ctx.save();
+        ctx.translate(this.x, this.y);
+        ctx.rotate(this.angle);
+
+        if (this.type === 'Rusher') {
+            ctx.fillStyle = '#00FF00';
+            ctx.shadowColor = '#00FF00';
+            ctx.shadowBlur = 10;
+            ctx.beginPath();
+            ctx.moveTo(10, 0);
+            ctx.lineTo(-10, 10);
+            ctx.lineTo(-10, -10);
+            ctx.fill();
+        } 
+        else if (this.type === 'Shield') {
+            // Triangle Body
+            ctx.fillStyle = '#0000FF';
+            ctx.beginPath();
+            ctx.moveTo(10, 0);
+            ctx.lineTo(-10, 10);
+            ctx.lineTo(-10, -10);
+            ctx.fill();
+
+            // Shield Arc
+            ctx.strokeStyle = '#00AAFF';
+            ctx.shadowColor = '#00AAFF';
+            ctx.shadowBlur = 15;
+            ctx.lineWidth = 4;
+            ctx.beginPath();
+            ctx.arc(0, 0, 22, -Math.PI/2, Math.PI/2);
+            ctx.stroke();
+        } 
+        else if (this.type === 'Sniper') {
+            ctx.fillStyle = '#AA00FF';
+            ctx.shadowColor = '#AA00FF';
+            ctx.shadowBlur = 10;
+            ctx.beginPath();
+            ctx.moveTo(10, 0);
+            ctx.lineTo(-10, 8);
+            ctx.lineTo(-6, 0);
+            ctx.lineTo(-10, -8);
+            ctx.fill();
+
+            // Laser Sight
+            if (this.sniperState === 1) {
+                ctx.restore(); // Undo local transform to draw global laser
+                ctx.save();
+                ctx.strokeStyle = 'rgba(255, 0, 0, 0.8)';
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                ctx.moveTo(this.x, this.y);
+                ctx.lineTo(player.x, player.y);
+                ctx.stroke();
+                ctx.restore();
+                return; // already restored
+            }
+        }
+        ctx.restore();
+    }
+}
+
+class Pickup {
+    constructor(x, y, type) {
+        this.x = x;
+        this.y = y;
+        this.type = type;
+        this.timer = 0;
+        this.color = (type === 'Pistol') ? '#FFFF00' : '#00FFFF';
+    }
+    draw() {
+        this.timer += 0.1;
+        const bob = Math.sin(this.timer) * 3;
+        ctx.save();
+        ctx.translate(this.x, this.y + bob);
+        ctx.fillStyle = this.color;
+        ctx.shadowBlur = 10;
+        ctx.shadowColor = this.color;
+        
+        ctx.font = "12px Courier";
+        ctx.textAlign = "center";
+        ctx.fillText(this.type[0], 0, -10); // First letter
+        ctx.fillRect(-5, -5, 10, 10);
+        ctx.restore();
+    }
+}
+
+/**
+ * GAME ENGINE
+ */
+
+function spawnParticles(x, y, color, speed) {
+    for (let i = 0; i < 15; i++) {
+        particles.push(new Particle(x, y, color, speed));
+    }
+}
+
+function generateLevel() {
+    walls = [];
+    enemies = [];
+    pickups = [];
+    bullets = [];
+    particles = [];
+
+    // Map Gen - Random Rects
+    // Always create border walls
+    walls.push({x: 0, y: 0, w: width, h: 20});
+    walls.push({x: 0, y: height-20, w: width, h: 20});
+    walls.push({x: 0, y: 0, w: 20, h: height});
+    walls.push({x: width-20, y: 0, w: 20, h: height});
+
+    // Random obstacles
+    const numWalls = 10 + level * 2;
+    for (let i = 0; i < numWalls; i++) {
+        let w = rand(50, 200);
+        let h = rand(50, 200);
+        let x = rand(100, width - 100 - w);
+        let y = rand(100, height - 100 - h);
+        walls.push({x, y, w, h});
+    }
+
+    // Spawn Player safely
+    let safe = false;
+    while (!safe) {
+        player = new Player(rand(100, width-100), rand(100, height-100));
+        safe = true;
+        for (let w of walls) {
+            if (checkRectCollide({x: player.x, y: player.y, w: 20, h: 20}, w)) safe = false;
+        }
+    }
+
+    // Spawn Enemies
+    const enemyTypes = ['Rusher', 'Shield', 'Sniper'];
+    const count = 4 + level;
+    for (let i = 0; i < count; i++) {
+        let safe = false;
+        let ex, ey;
+        while (!safe) {
+            ex = rand(50, width-50);
+            ey = rand(50, height-50);
+            safe = true;
+            // Check wall collision
+            for (let w of walls) {
+                if (checkRectCollide({x: ex, y: ey, w: 20, h: 20}, w)) safe = false;
+            }
+            // Check player dist
+            if (Math.hypot(ex - player.x, ey - player.y) < 300) safe = false;
+        }
+        let type = enemyTypes[Math.floor(Math.random() * enemyTypes.length)];
+        // Bias logic: Start easy
+        if (level === 1) type = (Math.random() > 0.3) ? 'Rusher' : 'Shield';
+        
+        enemies.push(new Enemy(ex, ey, type));
+    }
+
+    uiLevel.innerText = "LEVEL: " + level;
+}
+
+function playerDie() {
+    spawnParticles(player.x, player.y, '#FFF', 5);
+    player.x = -1000; // Move away
+    player.dead = true;
+    setTimeout(() => {
+        level = 1;
+        generateLevel();
+    }, 1000);
+}
+
+function update() {
+    if (player.dead) return;
+
+    // Shake decay
+    if (camShake > 0) camShake *= 0.9;
+    if (camShake < 0.5) camShake = 0;
+
+    player.update();
+
+    // Bullets
+    for (let i = bullets.length - 1; i >= 0; i--) {
+        let b = bullets[i];
+        b.update();
+        if (b.dead) {
+            bullets.splice(i, 1);
+            continue;
+        }
+
+        // Bullet vs Enemies
+        if (b.ownerType === 'player') {
+            for (let j = enemies.length - 1; j >= 0; j--) {
+                let e = enemies[j];
+                let dist = Math.hypot(b.x - e.x, b.y - e.y);
+                
+                // Radius collision (bigger for melee/thrown)
+                let hitDist = b.radius + 15; // 15 is roughly half enemy size
+
+                if (dist < hitDist) {
+                    
+                    // Logic: Shield Enemy Defense
+                    let kill = true;
+                    if (e.type === 'Shield' && !b.isMelee) { // Data blade ignores shields? Or not? Prompt says "Enemies (except Shield) die in one hit". Usually melee breaks shield, but let's stick to directional logic for bullets.
+                        // Calculate Dot Product to see if hitting front
+                        // Enemy Forward Vector
+                        let ex = Math.cos(e.angle);
+                        let ey = Math.sin(e.angle);
+                        // Vector from Enemy to Bullet Origin (approximate by inverting bullet velocity or just tracking position)
+                        // A better vector is: Vector from Enemy to Bullet. 
+                        let bx = b.x - e.x;
+                        let by = b.y - e.y;
+                        // Normalize
+                        let d = Math.sqrt(bx*bx + by*by);
+                        bx/=d; by/=d;
+                        
+                        // Dot product: if > 0, bullet is in front of enemy.
+                        // Actually, simpler: Angle Difference.
+                        let angleToBullet = Math.atan2(b.y - e.y, b.x - e.x);
+                        let angleDiff = Math.abs(angleToBullet - e.angle);
+                        while(angleDiff > Math.PI) angleDiff -= Math.PI*2;
+                        angleDiff = Math.abs(angleDiff);
+
+                        // If bullet is in front arc (approx 90 deg either side)
+                        // Actually, if bullet hits shield, it's coming FROM the front.
+                        // So the angle from Enemy To Bullet should be roughly same as Enemy Facing angle.
+                        if (angleDiff < 1.5) { 
+                            kill = false; // Blocked!
+                            b.dead = true;
+                            spawnParticles(b.x, b.y, '#00AAFF', 3); // Blue sparks
+                        }
+                    }
+
+                    // Special Case: Thrown weapon always kills
+                    if (b.isThrown) kill = true;
+
+                    if (kill) {
+                        spawnParticles(e.x, e.y, e.color, 4);
+                        
+                        // Drop Weapon
+                        if (Math.random() < 0.5) {
+                            if (e.type === 'Rusher') {/*No gun*/}
+                            else if (e.type === 'Shield') pickups.push(new Pickup(e.x, e.y, 'Shotgun'));
+                            else if (e.type === 'Sniper') pickups.push(new Pickup(e.x, e.y, 'Pistol')); // Sniper drops pistol for balance or maybe Pistol enemy logic
+                            else pickups.push(new Pickup(e.x, e.y, 'Pistol'));
+                        }
+
+                        enemies.splice(j, 1);
+                        b.dead = true; // Bullet destroys on impact
+                        if (b.isMelee) b.dead = false; // Melee passes through multiple
+                        if (b.isRailgun) b.dead = false; // Railgun passes through
+                    }
+                }
+            }
+        } 
+        else if (b.ownerType === 'enemy') {
+            // Bullet vs Player
+            let dist = Math.hypot(b.x - player.x, b.y - player.y);
+            if (dist < 15) {
+                playerDie();
+            }
+            // Bullet vs Melee (Parry)
+            // If player has a melee "bullet" out, it destroys enemy bullets
+            if (player.weapon.type === 'Data-Blade' && player.weapon.cooldown > (player.weapon.maxCooldown - 5)) {
+                 // Simple hack: if there is a melee bullet nearby
+                 // Actually handled better by checking the melee bullet list vs enemy bullet list
+            }
+        }
+    }
+
+    // Specific logic: Player Melee destroying Enemy Bullets
+    bullets.filter(b => b.isMelee).forEach(melee => {
+        bullets.filter(b => b.ownerType === 'enemy').forEach(eb => {
+            if (Math.hypot(melee.x - eb.x, melee.y - eb.y) < melee.radius + 5) {
+                eb.dead = true;
+                spawnParticles(eb.x, eb.y, '#FFF', 1);
+            }
+        });
+    });
+
+    enemies.forEach(e => e.update());
+    particles.forEach(p => p.update());
+
+    // Clean particles
+    particles = particles.filter(p => p.life > 0);
+
+    // UI Updates
+    uiWeapon.innerText = "WEAPON: " + player.weapon.type.toUpperCase();
+    uiAmmo.innerText = "AMMO: " + (player.weapon.ammo === Infinity ? "∞" : player.weapon.ammo);
+
+    // Level Transition
+    if (enemies.length === 0 && gameState === 'playing') {
+        gameState = 'transition';
+        msgEl.style.display = 'block';
+        setTimeout(() => {
+            level++;
+            gameState = 'playing';
+            msgEl.style.display = 'none';
+            generateLevel();
+        }, 2000);
+    }
+}
+
+function draw() {
+    // Clear
+    ctx.fillStyle = '#050505';
+    ctx.fillRect(0, 0, width, height);
+
+    ctx.save();
+    
+    // Camera Shake
+    let sx = rand(-camShake, camShake);
+    let sy = rand(-camShake, camShake);
+    ctx.translate(sx, sy);
+
+    // Draw Walls
+    ctx.fillStyle = '#000000';
+    ctx.strokeStyle = '#0033FF';
+    ctx.lineWidth = 2;
+    ctx.shadowBlur = 5;
+    ctx.shadowColor = '#0033FF';
+    for (let w of walls) {
+        ctx.fillRect(w.x, w.y, w.w, w.h);
+        ctx.strokeRect(w.x, w.y, w.w, w.h);
+    }
+
+    pickups.forEach(p => p.draw());
+    if (!player.dead) player.draw();
+    enemies.forEach(e => e.draw());
+    bullets.forEach(b => b.draw());
+    particles.forEach(p => p.draw());
+
+    ctx.restore();
+    frameCount++;
+}
+
+function loop() {
+    update();
+    draw();
+    requestAnimationFrame(loop);
+}
+
+/**
+ * INPUTS
+ */
+window.addEventListener('keydown', e => {
+    keys[e.code] = true;
+});
+window.addEventListener('keyup', e => {
+    keys[e.code] = false;
+});
+window.addEventListener('mousemove', e => {
+    mouse.x = e.clientX;
+    mouse.y = e.clientY;
+});
+window.addEventListener('mousedown', e => {
+    if (e.button === 0) { // Left Click
+        if (player && !player.dead) player.shoot();
+    } else if (e.button === 2) { // Right Click
+        if (player && !player.dead) player.throwWeapon();
+    }
+});
+window.addEventListener('contextmenu', e => e.preventDefault());
+
+// Start
+generateLevel();
+loop();
+
+</script>
+</body>
+</html>
