@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>EXECUTIONER.EXE: REWIRED</title>
+    <title>EXECUTIONER.EXE: PATCHED</title>
     <style>
         body {
             margin: 0;
@@ -17,12 +17,10 @@
             transition: filter 0.1s;
         }
         
-        /* SLOW MO EFFECT */
         .slow-mo {
             filter: invert(1) hue-rotate(180deg) contrast(1.2);
         }
 
-        /* HUD LAYOUT */
         #ui-layer {
             position: absolute;
             top: 0; left: 0; width: 100%; height: 100%;
@@ -34,7 +32,6 @@
             box-sizing: border-box;
         }
 
-        /* STYLE METER (Right Side) */
         #style-container {
             position: absolute;
             right: 40px;
@@ -77,7 +74,6 @@
             text-shadow: 2px 2px 0 #000;
         }
 
-        /* TOP LEFT HUD */
         .hud-row {
             display: flex;
             align-items: center;
@@ -90,7 +86,6 @@
         #focus-bar-bg { width: 250px; height: 12px; background: #222; border: 2px solid #555; transform: skewX(-20deg); }
         #focus-fill { width: 100%; height: 100%; background: #ff00ff; box-shadow: 0 0 10px #ff00ff; }
 
-        /* CENTER MESSAGES */
         #center-msg {
             position: absolute;
             top: 50%; left: 50%;
@@ -108,7 +103,6 @@
             letter-spacing: 5px;
         }
 
-        /* START SCREEN */
         #start-screen {
             position: absolute;
             top: 0; left: 0; width: 100%; height: 100%;
@@ -181,7 +175,7 @@
     <h1 style="color:#00ffff; font-size:80px; margin:0 0 20px 0; text-shadow:4px 4px 0 #ff00ff; font-style:italic;">EXECUTIONER.EXE</h1>
     <div class="inst-box">
         <div style="font-size: 20px; line-height: 1.8; color: #ddd;">
-            <span class="key">WASD</span> Move (Fast) | <span class="key">SPACE</span> Dash (Dodge) | <span class="key">SHIFT</span> Focus (Slow-Mo)<br>
+            <span class="key">WASD</span> Move | <span class="key">SPACE</span> Dash | <span class="key">SHIFT</span> Focus<br>
             <span class="key">L-CLICK</span> Attack | <span class="key">R-CLICK</span> Throw Gun<br>
             <br>
             <span class="mech">PARRY</span>: Slash enemy bullets.<br>
@@ -201,8 +195,13 @@
 const AudioSys = {
     ctx: null,
     init: function() {
-        window.AudioContext = window.AudioContext || window.webkitAudioContext;
-        this.ctx = new AudioContext();
+        if (!this.ctx) {
+            window.AudioContext = window.AudioContext || window.webkitAudioContext;
+            this.ctx = new AudioContext();
+        }
+        if (this.ctx.state === 'suspended') {
+            this.ctx.resume();
+        }
     },
     playTone: function(freq, type, duration, vol=0.1, slide=0) {
         if(!this.ctx) return;
@@ -257,7 +256,6 @@ const Style = {
 
     update: function(dt) {
         this.decayTimer += dt;
-        // Decay logic
         if(this.decayTimer > 3.0 && this.meter > 0) {
             this.meter -= 40 * dt;
             if(this.meter < 0) {
@@ -267,7 +265,6 @@ const Style = {
             }
         }
         
-        // Grade Up Logic
         if(this.meter >= this.maxMeter) {
             if(this.gradeIndex < this.grades.length - 1) {
                 this.gradeIndex++;
@@ -278,7 +275,6 @@ const Style = {
             }
         }
 
-        // DOM Update
         const g = document.getElementById('style-grade');
         g.innerText = this.grades[this.gradeIndex];
         g.style.color = this.gradeColors[this.gradeIndex];
@@ -286,10 +282,9 @@ const Style = {
         document.getElementById('style-bar-fill').style.backgroundColor = this.gradeColors[this.gradeIndex];
         document.getElementById('style-words').innerText = this.words[this.gradeIndex];
 
-        // Floating Texts
         for(let i=this.texts.length-1; i>=0; i--) {
             let t = this.texts[i];
-            t.y -= 50 * dt; // Float up
+            t.y -= 50 * dt;
             t.life -= dt;
             if(t.life <= 0) this.texts.splice(i, 1);
         }
@@ -320,6 +315,7 @@ const Style = {
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 let width, height;
+let animationId;
 
 function resize() {
     width = canvas.width = window.innerWidth;
@@ -328,10 +324,8 @@ function resize() {
 window.addEventListener('resize', resize);
 resize();
 
-// Constants
-const CELL_SIZE = 80; // Large grid for spacious map
+const CELL_SIZE = 80;
 
-// State
 let gameState = 'menu';
 let level = 1;
 let lastTime = 0;
@@ -340,7 +334,6 @@ let baseTimeScale = 1.0;
 let isLevelLoading = false;
 let camShake = 0;
 
-// Entities
 let player;
 let walls = [];
 let enemies = [];
@@ -348,7 +341,6 @@ let bullets = [];
 let particles = [];
 let pickups = [];
 
-// Input
 const keys = {};
 const mouse = { x: 0, y: 0 };
 window.addEventListener('keydown', e => keys[e.code] = true);
@@ -387,7 +379,7 @@ function resolveMove(entity, dx, dy) {
     
     // Y Axis
     entity.y += dy;
-    bounds.x = entity.x - entity.w/2; bounds.y = entity.y - entity.h/2; // Update bounds with new X
+    bounds.x = entity.x - entity.w/2; bounds.y = entity.y - entity.h/2; 
     for(let w of walls) {
         if(checkRect(bounds, w)) {
             if(dy > 0) entity.y = w.y - entity.h/2 - 0.1;
@@ -399,9 +391,9 @@ function resolveMove(entity, dx, dy) {
 
 function checkLOS(x1, y1, x2, y2) {
     let dist = Math.hypot(x2-x1, y2-y1);
-    let steps = dist / CELL_SIZE;
+    let steps = Math.ceil(dist / CELL_SIZE);
     let angle = Math.atan2(y2-y1, x2-x1);
-    for(let i=1; i<steps; i++) {
+    for(let i=1; i<=steps; i++) {
         let tx = x1 + Math.cos(angle)*(i*CELL_SIZE);
         let ty = y1 + Math.sin(angle)*(i*CELL_SIZE);
         for(let w of walls) {
@@ -413,19 +405,23 @@ function checkLOS(x1, y1, x2, y2) {
 
 function getSafeSpawn() {
     let attempts = 0;
-    while(attempts < 1000) {
+    while(attempts < 500) {
         let x = Math.random() * (width - 120) + 60;
         let y = Math.random() * (height - 120) + 60;
         let safe = true;
+        let bounds = {x:x-20, y:y-20, w:40, h:40};
+        
         for(let w of walls) {
-            if(checkRect({x:x-20, y:y-20, w:40, h:40}, w)) safe = false;
+            if(checkRect(bounds, w)) { safe = false; break; }
         }
+        
         if(safe && player) {
             if(Math.hypot(x-player.x, y-player.y) < 400) safe = false;
         }
         if(safe) return {x, y};
         attempts++;
     }
+    // Fallback if map is too crowded
     return {x: width/2, y: height/2};
 }
 
@@ -436,7 +432,6 @@ class Weapon {
     constructor(type) {
         this.type = type;
         this.timer = 0;
-        // Faster cooldowns for snappier combat
         if (type === 'Pistol') { this.color = '#FF0'; this.ammo = 12; this.cooldown = 0.2; }
         else if (type === 'Shotgun') { this.color = '#0FF'; this.ammo = 6; this.cooldown = 0.8; }
         else if (type === 'SMG') { this.color = '#A0F'; this.ammo = 32; this.cooldown = 0.08; }
@@ -448,7 +443,6 @@ class Weapon {
 class Bullet {
     constructor(x, y, angle, speed, color, owner, type) {
         this.x = x; this.y = y; this.angle = angle;
-        // Increased base projectile speeds
         let buff = (owner === 'player' && type !== 'melee') ? Style.getBuffs().speed : 1.0;
         this.vx = Math.cos(angle) * speed * buff;
         this.vy = Math.sin(angle) * speed * buff;
@@ -474,7 +468,7 @@ class Bullet {
             if (this.type === 'grenade') explode(this.x, this.y, this.owner);
         }
 
-        if (this.type !== 'melee' && this.type !== 'rail') {
+        if (this.type !== 'melee') {
             for (let w of walls) {
                 if (this.x > w.x && this.x < w.x + w.w && this.y > w.y && this.y < w.y + w.h) {
                     this.dead = true;
@@ -518,11 +512,9 @@ class Player {
         this.trigger = false;
     }
     update(dt) {
-        // Look at mouse
         this.angle = Math.atan2(mouse.y - this.y, mouse.x - this.x);
         let buffs = Style.getBuffs();
 
-        // Focus / Slow Mo
         if (keys['ShiftLeft'] && this.focus > 0) {
             baseTimeScale = 0.2;
             canvas.classList.add('slow-mo');
@@ -533,7 +525,6 @@ class Player {
             if (this.focus < this.maxFocus) this.focus += 15 * dt;
         }
 
-        // Dash
         if (this.dashCooldown > 0) this.dashCooldown -= dt * timeScale;
         if (this.dashTimer > 0) this.dashTimer -= dt * timeScale;
 
@@ -544,7 +535,6 @@ class Player {
             spawnParticles(this.x, this.y, '#0FF', 8);
         }
 
-        // Movement (Snappy 300 base speed + 20% = 360)
         let moveSpeed = (this.dashTimer > 0) ? 900 : 360; 
         let dx = 0, dy = 0;
         if (keys['KeyW']) dy = -1;
@@ -555,19 +545,15 @@ class Player {
         if (dx || dy) {
             let len = Math.hypot(dx, dy);
             dx /= len; dy /= len;
-            // Apply Move with Slide Logic
             resolveMove(this, dx * moveSpeed * dt * timeScale, dy * moveSpeed * dt * timeScale);
         }
 
-        // Weapon Timer
         if (this.weapon.timer > 0) this.weapon.timer -= dt * timeScale;
         
-        // Shoot
         if (this.trigger && this.weapon.timer <= 0) {
             if (this.weapon.type === 'Data-Blade' || this.weapon.ammo > 0) this.shoot();
         }
 
-        // Pickups
         for(let i=pickups.length-1; i>=0; i--) {
             let p = pickups[i];
             if (Math.hypot(this.x - p.x, this.y - p.y) < 30) {
@@ -630,7 +616,6 @@ class Enemy {
         this.hp = 1;
         this.state = 0; this.timer = 0; 
         
-        // Boosted Enemy Speeds
         if (type === 'Rusher') { this.color = '#0F0'; this.speed = 220; }
         else if (type === 'Shield') { this.color = '#00F'; this.hp = 3; this.speed = 100; }
         else if (type === 'Sniper') { this.color = '#A0F'; this.speed = 80; }
@@ -644,14 +629,11 @@ class Enemy {
         let angToPlayer = Math.atan2(player.y - this.y, player.x - this.x);
         let hasLOS = checkLOS(this.x, this.y, player.x, player.y);
 
-        // AI Logic
         if (this.type === 'Rusher') {
             this.angle = angToPlayer;
-            // Wall Sliding happens inside resolveMove implicitly
             resolveMove(this, Math.cos(angToPlayer)*this.speed*dt*timeScale, Math.sin(angToPlayer)*this.speed*dt*timeScale);
         } 
         else if (this.type === 'Shield') {
-            // Turn slowly
             let diff = angToPlayer - this.angle;
             while(diff < -Math.PI) diff+=Math.PI*2; while(diff>Math.PI) diff-=Math.PI*2;
             this.angle += diff * 5 * dt * timeScale;
@@ -664,17 +646,16 @@ class Enemy {
             }
         }
         else if (this.type === 'Sniper') {
-            if(this.state === 0) { // Move
+            if(this.state === 0) { 
                 if(hasLOS) { this.state = 1; this.timer = 1.5; }
                 else {
-                    // Try to move towards player even if no LOS (corner navigation)
                     resolveMove(this, Math.cos(angToPlayer)*this.speed*dt*timeScale, Math.sin(angToPlayer)*this.speed*dt*timeScale);
                 }
-            } else if(this.state === 1) { // Aim
+            } else if(this.state === 1) { 
                 this.angle = angToPlayer;
                 this.timer -= dt * timeScale;
                 if(this.timer <= 0) { this.shoot(0, 1500); this.state=2; this.timer=2.5; }
-            } else { // Cooldown
+            } else { 
                 this.timer -= dt * timeScale;
                 if(this.timer <= 0) this.state = 0;
             }
@@ -693,12 +674,11 @@ class Enemy {
                 this.angle = angToPlayer;
                 if(dist > 250) resolveMove(this, Math.cos(angToPlayer)*this.speed*dt*timeScale, Math.sin(angToPlayer)*this.speed*dt*timeScale);
                 if(hasLOS && dist < 400) { this.state = 1; this.timer = 0.8; }
-            } else if(this.state === 1) { // Windup
+            } else if(this.state === 1) { 
                 this.angle = angToPlayer;
                 this.timer -= dt * timeScale;
                 if(this.timer <= 0) { this.state=2; this.timer=3.0; }
-            } else if(this.state === 2) { // Fire
-                 // Slow turn while firing
+            } else if(this.state === 2) { 
                 let diff = angToPlayer - this.angle;
                 while(diff < -Math.PI) diff+=Math.PI*2; while(diff>Math.PI) diff-=Math.PI*2;
                 this.angle += diff * 2 * dt * timeScale;
@@ -706,7 +686,7 @@ class Enemy {
                 this.timer -= dt * timeScale;
                 if(Math.random() < 0.2) this.shoot((Math.random()-0.5)*0.2, 600);
                 if(this.timer <= 0) { this.state=3; this.timer=2.0; }
-            } else { // Cooldown
+            } else { 
                 this.timer -= dt * timeScale;
                 if(this.timer <= 0) this.state = 0;
             }
@@ -752,47 +732,35 @@ class Enemy {
 }
 
 /**
- * GAME MECHANICS
+ * MECHANICS
  */
 function checkMeleeHit(px, py, angle) {
-    let hitSomething = false;
-
-    // 1. Check Bullets (Parry & FLEX)
     for(let i=bullets.length-1; i>=0; i--) {
         let b = bullets[i];
         let dist = Math.hypot(b.x - px, b.y - py);
         
-        if(dist < 100 && !b.dead) { // Melee Range
+        if(dist < 100 && !b.dead) { 
             let angToB = Math.atan2(b.y - py, b.x - px);
             let diff = Math.abs(angToB - angle);
             while(diff > Math.PI) diff -= Math.PI*2;
             
-            if(Math.abs(diff) < Math.PI/3) { // 120 degree cone
-                
-                // NEW: FLEX MECHANIC (Hit Thrown Gun)
+            if(Math.abs(diff) < Math.PI/3) { 
                 if(b.type === 'thrown') {
                     b.dead = true;
-                    Style.add(200, 'FLEXING', b.x, b.y); // Huge Points
+                    Style.add(200, 'FLEXING', b.x, b.y);
                     spawnParticles(b.x, b.y, '#FF0', 15);
-                    explode(b.x, b.y, 'player'); // Trigger explosion
+                    explode(b.x, b.y, 'player'); 
                     AudioSys.flex();
-                    hitSomething = true;
                 }
-                // PARRY MECHANIC (Hit Enemy Bullet)
                 else if(b.owner === 'enemy') {
                     b.dead = true;
                     Style.add(20, 'PARRY', b.x, b.y);
                     spawnParticles(b.x, b.y, '#FFF', 5);
                     AudioSys.parry();
-                    hitSomething = true;
                 }
             }
         }
     }
-
-    // 2. Check Enemies (Damage)
-    // Note: This logic is now handled in the BULLET UPDATE for the melee projectile, 
-    // but we add special effects here if needed.
 }
 
 function explode(x, y, owner) {
@@ -802,7 +770,6 @@ function explode(x, y, owner) {
     particles.push({x:x, y:y, vx:0, vy:0, life:0.4, color:'#FFF', size: r, alpha:1});
     spawnParticles(x, y, '#F50', 25);
     
-    // Damage Enemies
     let kills = 0;
     for(let i=enemies.length-1; i>=0; i--) {
         let e = enemies[i];
@@ -813,7 +780,6 @@ function explode(x, y, owner) {
     }
     if(kills > 1) Style.add(kills * 50, 'MULTI-KILL!', x, y);
 
-    // Damage Player
     if(Math.hypot(player.x - x, player.y - y) < r && player.dashTimer <= 0) {
         killPlayer();
     }
@@ -856,34 +822,37 @@ function spawnParticles(x, y, color, count) {
 }
 
 /**
- * MAP GEN (SPACIOUS)
+ * MAP GEN (Safe Version)
  */
 function generateLevel() {
     walls = []; enemies = []; pickups = []; bullets = []; particles = [];
     isLevelLoading = false;
     document.getElementById('center-msg').style.display = 'none';
 
-    // 1. Grid Setup
     let gw = Math.floor(width/CELL_SIZE);
     let gh = Math.floor(height/CELL_SIZE);
     let grid = [];
     for(let y=0; y<gh; y++) {
         let row = [];
-        for(let x=0; x<gw; x++) row.push(1); // 1 = Wall
+        for(let x=0; x<gw; x++) row.push(1);
         grid.push(row);
     }
 
-    // 2. Random Walker for Spacious Rooms
+    // Walker Algorithm with SAFETY LOOP
     let cx = Math.floor(gw/2), cy = Math.floor(gh/2);
     let walkers = [{x:cx, y:cy}];
     let floorCount = 0;
-    let targetFloors = (gw * gh) * 0.5; // 50% open space
+    let targetFloors = (gw * gh) * 0.5;
+    
+    // CRITICAL FIX: Max iterations to prevent infinite loops
+    let attempts = 0;
+    const MAX_ATTEMPTS = 50000; 
 
-    while(floorCount < targetFloors) {
+    while(floorCount < targetFloors && attempts < MAX_ATTEMPTS) {
+        attempts++;
         let wIdx = Math.floor(Math.random() * walkers.length);
         let w = walkers[wIdx];
         
-        // Carve 3x3 area for width
         for(let dy=-1; dy<=1; dy++) {
             for(let dx=-1; dx<=1; dx++) {
                 if(w.y+dy > 1 && w.y+dy < gh-2 && w.x+dx > 1 && w.x+dx < gw-2) {
@@ -895,22 +864,18 @@ function generateLevel() {
             }
         }
 
-        // Move Walker
         let dir = Math.floor(Math.random()*4);
         if(dir===0) w.y -= 2;
         else if(dir===1) w.y += 2;
         else if(dir===2) w.x -= 2;
         else if(dir===3) w.x += 2;
 
-        // Keep bounds
         w.x = Math.max(2, Math.min(gw-3, w.x));
         w.y = Math.max(2, Math.min(gh-3, w.y));
 
-        // Add new walker rarely
         if(Math.random() < 0.05) walkers.push({x:w.x, y:w.y});
     }
 
-    // 3. Build Walls from Grid
     for(let y=0; y<gh; y++) {
         for(let x=0; x<gw; x++) {
             if(grid[y][x] === 1) {
@@ -919,7 +884,6 @@ function generateLevel() {
         }
     }
 
-    // 4. Spawn Entities
     let pPos = getSafeSpawn();
     player = new Player(pPos.x, pPos.y);
 
@@ -934,7 +898,7 @@ function generateLevel() {
 }
 
 /**
- * MAIN LOOP
+ * LOOP
  */
 function update(dt) {
     Style.update(dt);
@@ -942,7 +906,6 @@ function update(dt) {
     
     if (!player.dead) player.update(dt);
 
-    // Bullets
     for (let i = bullets.length - 1; i >= 0; i--) {
         let b = bullets[i];
         b.update(dt);
@@ -953,9 +916,7 @@ function update(dt) {
                 let e = enemies[j];
                 let hit = false;
                 
-                // Hit Logic
                 if (b.type === 'melee') {
-                    // Melee hits are checked via cone distance
                     if(Math.hypot(e.x - b.x, e.y - b.y) < b.radius) {
                         let ang = Math.atan2(e.y-b.y, e.x-b.x);
                         let diff = Math.abs(ang - b.angle);
@@ -967,12 +928,11 @@ function update(dt) {
                 }
 
                 if (hit) {
-                    // Shield: Only blocks NORMAL bullets from front. MELEE kills instantly.
                     if (e.type === 'Shield' && b.type === 'normal') {
                         let ang = Math.atan2(b.y - e.y, b.x - e.x);
                         let diff = Math.abs(ang - e.angle);
                         while(diff>Math.PI) diff -= Math.PI*2;
-                        if (Math.abs(diff) < 1.5) { // Blocked
+                        if (Math.abs(diff) < 1.5) { 
                             b.dead = true; spawnParticles(b.x, b.y, '#0AF', 5); continue;
                         }
                     }
@@ -982,15 +942,12 @@ function update(dt) {
                     else {
                         e.hp--;
                         spawnParticles(e.x, e.y, e.color, 5);
-                        // Melee kills shield instantly
                         if(b.type === 'melee' && e.type === 'Shield') e.hp = 0;
-                        
                         if(e.hp <= 0) killEnemy(j, b.type==='melee'?'SLICED':'KILL');
                     }
                 }
             }
         } else {
-            // Enemy Bullet vs Player
             if (!player.dead && Math.hypot(b.x - player.x, b.y - player.y) < 15) {
                 if (player.dashTimer > 0) {
                     b.dead = true;
@@ -1005,7 +962,6 @@ function update(dt) {
 
     enemies.forEach(e => e.update(dt));
     
-    // Particles
     for(let i=particles.length-1; i>=0; i--) {
         let p = particles[i];
         p.x += p.vx * dt * timeScale; p.y += p.vy * dt * timeScale;
@@ -1013,7 +969,6 @@ function update(dt) {
         if(p.life <= 0) particles.splice(i, 1);
     }
 
-    // Win
     if (enemies.length === 0 && !isLevelLoading && !player.dead) {
         isLevelLoading = true;
         document.getElementById('msg-text').innerText = "SECTOR CLEAR";
@@ -1031,13 +986,11 @@ function draw() {
     let sy = (Math.random()-0.5)*camShake;
     ctx.translate(sx, sy);
 
-    // Floor Grid
     ctx.strokeStyle = '#111'; ctx.lineWidth = 2; ctx.beginPath();
     for(let x=0; x<width; x+=CELL_SIZE) { ctx.moveTo(x,0); ctx.lineTo(x,height); }
     for(let y=0; y<height; y+=CELL_SIZE) { ctx.moveTo(0,y); ctx.lineTo(width,y); }
     ctx.stroke();
 
-    // Walls
     ctx.shadowBlur = 15;
     for(let w of walls) {
         ctx.fillStyle = '#000'; ctx.fillRect(w.x, w.y, w.w, w.h);
@@ -1062,7 +1015,6 @@ function draw() {
     });
     ctx.globalAlpha = 1.0;
 
-    // Floating Text
     ctx.font = "italic 900 20px sans-serif";
     ctx.textAlign = "center";
     for(let t of Style.texts) {
@@ -1076,24 +1028,26 @@ function draw() {
 }
 
 function loop(timestamp) {
+    if(!lastTime) lastTime = timestamp;
     let dt = (timestamp - lastTime) / 1000;
     lastTime = timestamp;
-    if(dt > 0.1) dt = 0.1; // Cap lag
+    if(dt > 0.1) dt = 0.1; 
     
     if (gameState === 'playing') update(dt);
     draw();
-    requestAnimationFrame(loop);
+    animationId = requestAnimationFrame(loop);
 }
 
 function startGame() {
+    if(animationId) cancelAnimationFrame(animationId);
     document.getElementById('start-screen').style.display = 'none';
     AudioSys.init();
     gameState = 'playing';
     level = 1;
     Style.points = 0; Style.meter = 0; Style.gradeIndex = 0;
-    lastTime = performance.now();
     generateLevel();
-    requestAnimationFrame(loop);
+    lastTime = performance.now(); // Reset time to prevent huge delta spike
+    loop(lastTime);
 }
 </script>
 </body>
