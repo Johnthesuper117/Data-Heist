@@ -1,70 +1,84 @@
-# ⚔️ Data Heist
+# 💀 EXECUTIONER.EXE
 
-> **A high-octane, abstract cyberpunk tactical shooter running entirely in a single HTML file.**
+> **"KILL_PROCESS INITIALIZED. STYLE REQUIRED."**
 
-**Data Heist** is a fast-paced action roguelite inspired by *Hotline Miami* and *Superhot*. You play as a rogue AI infiltrating a secure mainframe. The rules are simple: One shot kills you, one shot kills them. Move fast, think faster.
+**EXECUTIONER.EXE** is a high-octane, abstract cyberpunk character-action shooter. You are a rogue program in a neon mainframe. Survival isn't enough; you must execute your enemies with *style*.
 
 ---
 
-## 🎮 How to Play
-
-### **Controls**
+## 🎮 Controls
 
 | Key | Action |
 | :--- | :--- |
-| **W, A, S, D** | Move Player |
+| **W, A, S, D** | Move |
 | **Mouse Cursor** | Aim |
-| **Left Click** | Fire Weapon / Swing Blade |
+| **Left Click** | **ATTACK** (Fire Gun or Swing Blade) |
 | **Right Click** | **THROW WEAPON** (Insta-kill projectile) |
-| **Spacebar** | **DASH** (Invincible for 0.2s) |
-| **Left Shift** | **FOCUS** (Slow Motion Matrix Style) |
+| **Spacebar** | **DASH** (Invincible + Graze Bullets) |
+| **Left Shift** | **FOCUS** (Slow Motion + Invert Reality) |
 
 ---
 
-## 🔫 Weapons & Combat Systems
+## ⚔️ The Style System
 
-You can only hold **one weapon** at a time. Adaptability is key.
+The core of the game is the **Style Meter**. Killing enemies and performing risky maneuvers raises your Grade.
 
-### **The Scavenge System**
-* **Ammo Stacking:** If you pick up a gun you already have, you gain its ammo.
-* **Swapping:** If you pick up a different gun, you drop your current one.
-* **Throwing:** Right-click throws your gun. If it hits an enemy, they die instantly. You revert to your **Data-Blade** (Melee) until you find a new gun.
+**Grades:** `D` ➔ `C` ➔ `B` ➔ `A` ➔ `S` ➔ `SS` ➔ `SSS`
 
-### **The Arsenal**
-1.  **Data-Blade (Melee):** Your fallback weapon. Wide arc, infinite ammo. Can slash through enemy bullets to destroy them.
-2.  **Pistol:** Reliable, yellow plasma rounds. Moderate fire rate.
-3.  **Shotgun:** Fires a spread of 5 cyan pellets. Devastating at close range, useless at long range.
-4.  **SMG:** High rate of fire with purple tracers. Low accuracy, but great for suppression.
-5.  **Grenade Launcher:** Fires a slow green orb. Explodes on impact, killing anything in a radius.
+### **Why Style Matters?**
 
----
+As your Grade increases, your system overclocks:
 
-## 🤖 Enemy Database
+1. **Dash Cooldown** decreases (Infinite dashing at SSS).
 
-Know your enemy to survive the breach.
+2. **Focus (Slow Mo)** drains slower.
+3. **Projectiles** fly faster and **Explosions** get bigger.
 
-* **🟢 The Rusher (Green Triangle):** High speed. No gun. Tries to tackle you. *Counter: Shoot early or melee.*
-* **🔵 The Shield (Blue Arc):** Blocks all damage from the front. Carries a pistol. *Counter: Dash behind them or use Grenades.*
-* **🟣 The Sniper (Purple + White Outline):** Tracks you with a laser sight for 1.5s, then fires a wall-piercing railgun. *Counter: Break line of sight or Dash through the shot.*
-* **🟧 The Shotgunner (Orange Square):** Aggressive. Fires a 3-bullet spread. *Counter: Keep your distance. Do not dash directly at him.*
-* **🔴 The Minigunner (Red Pentagon):** Heavy tank. Fires a continuous stream for 3 seconds, then reloads. *Counter: Wait for the reload, then strike.*
+### **How to Score**
+
+* **SLICED:** Kill with the Data-Blade.
+* **BOOM:** Kill with an Explosion.
+* **MULTI-KILL:** Kill 2+ enemies at once.
+* **PARRY:** Swing your blade to destroy enemy bullets or thrown guns.
+* **DODGE (Graze):** Dash *through* enemy bullets. You won't take damage, but you will steal their energy.
 
 ---
 
-## 🛠️ Installation & Running
+## 🔫 The Arsenal
 
-No installation required! This game is built using the HTML5 Canvas API and Web Audio API.
+You can only hold **one weapon**. Adapt or be deleted.
 
-1.  Download the `index.html` file (or whatever you named your game file).
-2.  Double-click to open it in any modern web browser (Chrome, Firefox, Edge).
-3.  **Click the screen once** to initialize the Audio Engine (Browsers block sound until interaction).
-4.  Hack the system.
+1. **Data-Blade (Melee):** Your fallback. 120° Cone. Can **PARRY** projectiles.
+2. **Pistol:** Reliable, moderate speed.
+3. **Shotgun:** Wide spread. Devastating close up.
+4. **SMG:** High fire rate, low accuracy. "Spray and Pray."
+5. **Grenade Launcher:** Fires a slow orb that explodes on contact with walls or enemies.
 
 ---
 
-## ⚙️ Technical Details
+## 🤖 Targets
 
-* **Engine:** Custom Vanilla JavaScript (No libraries).
-* **Rendering:** HTML5 `<canvas>`.
-* **Audio:** Procedural synthesis using `AudioContext` (No external .mp3/.wav files needed).
-* **Physics:** Predictive collision detection with wall-sliding logic.
+* **🟢 Rusher:** Fast melee unit.
+* **🔵 Shield:** Blocks frontal attacks. Flank them or use explosives.
+* **🟣 Sniper:** Displays a laser sight, then fires a fast railgun shot. *Tip: High visibility outline.*
+* **🟧 Shotgunner:** Fires a 3-round burst. *Tip: Do not dash directly at him.*
+* **🔴 Minigunner:** Suppresses the area with a stream of bullets.
+
+---
+
+## 🛠️ Installation
+
+1. Download `executioner.html`.
+2. Open in Chrome, Firefox, or Edge.
+3. **Click the screen** to activate the Audio System.
+4. Play.
+
+---
+
+## 📝 Credits
+
+Generated by AI. Directed by Johnthesuper117.
+
+* **Engine:** Vanilla JavaScript (Canvas API).
+
+* **Audio:** Web Audio API (Procedural Synthesis).
